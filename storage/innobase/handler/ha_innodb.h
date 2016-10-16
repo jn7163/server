@@ -1051,13 +1051,9 @@ innodb_base_col_setup_for_stored(
 	dict_s_col_t*		s_col);
 
 /** whether this is a stored column */
-// JAN: TODO: MySQL 5.7 virtual fields
-//#define innobase_is_s_fld(field) ((field)->gcol_info && (field)->stored_in_db)
-#define innobase_is_s_fld(field) (field == NULL)
-// JAN: TODO: MySQL 5.7 virtual fields
+#define innobase_is_s_fld(field) ((field)->vcol_info && (field)->stored_in_db())
 /** whether this is a computed virtual column */
-//#define innobase_is_v_fld(field) ((field)->gcol_info && !(field)->stored_in_db)
-#define innobase_is_v_fld(field) (field == NULL)
+#define innobase_is_v_fld(field) ((field)->vcol_info && !(field)->stored_in_db())
 
 /** Release temporary latches.
 Call this function when mysqld passes control to the client. That is to

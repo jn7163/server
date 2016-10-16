@@ -6259,7 +6259,6 @@ innobase_match_index_columns(
 	DBUG_RETURN(TRUE);
 }
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 /** Build a template for a base column for a virtual column
 @param[in]	table		MySQL TABLE
 @param[in]	clust_index	InnoDB clustered index
@@ -6319,6 +6318,8 @@ innobase_vcol_build_templ(
         templ->is_unsigned = col->prtype & DATA_UNSIGNED;
 }
 
+#ifdef MYSQL_VIRTUAL_COLUMNS
+
 /** callback used by MySQL server layer to initialize
 the table virtual columns' template
 @param[in]	table		MySQL TABLE
@@ -6333,6 +6334,7 @@ innobase_build_v_templ_callback(
 	innobase_build_v_templ(table, t_table, t_table->vc_templ, NULL,
 			       true, NULL);
 }
+#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 /** Build template for the virtual columns and their base columns. This
 is done when the table first opened.
@@ -6495,7 +6497,6 @@ innobase_build_v_templ(
 		s_templ->share_name = share_tbl_name;
 	}
 }
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 /*******************************************************************//**
 This function builds a translation table in INNOBASE_SHARE
@@ -6895,7 +6896,7 @@ ha_innobase::open(
 
 	if (ib_table != NULL
 	    && ((!DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
-		 && table->s->stored_fields != dict_table_get_n_tot_u_cols(ib_table))
+		 && table->s->fields != dict_table_get_n_tot_u_cols(ib_table))
 		|| (DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
 		    && (table->s->stored_fields
 			!= dict_table_get_n_tot_u_cols(ib_table) - 1)))) {
@@ -7060,7 +7061,6 @@ ha_innobase::open(
 
 	key_used_on_scan = m_primary_key;
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 	if (ib_table->n_v_cols) {
 		mutex_enter(&dict_sys->mutex);
 		if (ib_table->vc_templ == NULL) {
@@ -7081,7 +7081,6 @@ ha_innobase::open(
 
 		mutex_exit(&dict_sys->mutex);
 	}
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 	if (!innobase_build_index_translation(table, ib_table, m_share)) {
 		  sql_print_error("Build InnoDB index translation table for"
@@ -11938,7 +11937,28 @@ create_table_check_doc_id_col(
 	return(false);
 }
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
+
+template <typename T> void
+prepare_vcol_for_base_setup(
+	const dict_table_t*	table,
+	const Field*	field,
+	T*		col)
+{
+        ut_ad(col->num_base == 0);
+        ut_ad(col->base_col == NULL);
+
+        bitmap_clear_all(&field->table->tmp_set);
+        field->vcol_info->expr_item->walk(
+                &Item::add_field_to_set_processor, 1, field->table);
+        col->num_base= bitmap_bits_set(&field->table->tmp_set);
+	if (col->num_base != 0) {
+		col->base_col = static_cast<dict_col_t**>(mem_heap_zalloc(
+					table->heap, col->num_base * sizeof(
+						*col->base_col)));
+	}
+}
+
+
 /** Set up base columns for virtual column
 @param[in]	table		InnoDB table
 @param[in]	field		MySQL field
@@ -11951,10 +11971,12 @@ innodb_base_col_setup(
 {
 	int     n = 0;
 
+        prepare_vcol_for_base_setup(table, field, v_col);
+
 	for (uint i= 0; i < field->table->s->fields; ++i) {
 		const Field* base_field = field->table->field[i];
-		if (!base_field->is_virtual_gcol()
-			&& bitmap_is_set(&field->gcol_info->base_columns_map, i)) {
+		if (base_field->stored_in_db()
+			&& bitmap_is_set(&field->table->tmp_set, i)) {
 			ulint   z;
 
 			for (z = 0; z < table->n_cols; z++) {
@@ -11972,10 +11994,9 @@ innodb_base_col_setup(
 			n++;
 		}
 	}
+        v_col->num_base= n;
 }
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 /** Set up base columns for stored column
 @param[in]	table	InnoDB table
 @param[in]	field	MySQL field
@@ -11988,12 +12009,14 @@ innodb_base_col_setup_for_stored(
 {
 	ulint	n = 0;
 
+        prepare_vcol_for_base_setup(table, field, s_col);
+
 	for (uint i= 0; i < field->table->s->fields; ++i) {
 		const Field* base_field = field->table->field[i];
 
 		if (!innobase_is_s_fld(base_field)
 		    && !innobase_is_v_fld(base_field)
-		    && bitmap_is_set(&field->gcol_info->base_columns_map,
+		    && bitmap_is_set(&field->table->tmp_set,
 				     i)) {
 			ulint	z;
 			for (z = 0; z < table->n_cols; z++) {
@@ -12015,8 +12038,8 @@ innodb_base_col_setup_for_stored(
 			}
 		}
 	}
+        s_col->num_base= n;
 }
-#endif
 
 /** Create a table definition to an InnoDB database.
 @return ER_* level error */
@@ -12026,7 +12049,7 @@ create_table_info_t::create_table_def()
 {
 	dict_table_t*	table;
 	ulint		n_cols;
-	ulint		s_cols;
+	dberr_t		err = DB_SUCCESS;
 	ulint		col_type;
 	ulint		col_len;
 	ulint		nulls_allowed;
@@ -12035,6 +12058,7 @@ create_table_info_t::create_table_def()
 	ulint		long_true_varchar;
 	ulint		charset_no;
 	ulint		i;
+	ulint		j = 0;
 	ulint		doc_id_col = 0;
 	ibool		has_doc_id_col = FALSE;
 	mem_heap_t*	heap;
@@ -12042,7 +12066,6 @@ create_table_info_t::create_table_def()
 	ulint		space_id = 0;
 	ulint		actual_n_cols;
 	ha_table_option_struct *options= m_form->s->option_struct;
-	dberr_t		err = DB_SUCCESS;
 
 	DBUG_ENTER("create_table_def");
 	DBUG_PRINT("enter", ("table_name: %s", m_table_name));
@@ -12071,9 +12094,7 @@ create_table_info_t::create_table_def()
 	}
 
 	n_cols = m_form->s->fields;
-	s_cols = m_form->s->stored_fields;
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 	/* Find out any virtual column */
 	for (i = 0; i < n_cols; i++) {
 		Field*	field = m_form->field[i];
@@ -12082,7 +12103,6 @@ create_table_info_t::create_table_def()
 			num_v++;
 		}
 	}
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 	ut_ad(trx_state_eq(m_trx, TRX_STATE_NOT_STARTED));
 
@@ -12108,8 +12128,7 @@ create_table_info_t::create_table_def()
 	}
 
 	/* Adjust the number of columns for the FTS hidden field */
-	actual_n_cols = m_form->s->stored_fields;
-
+	actual_n_cols = n_cols;
 	if (m_flags2 & DICT_TF2_FTS && !has_doc_id_col) {
 		actual_n_cols += 1;
 	}
@@ -12120,7 +12139,7 @@ create_table_info_t::create_table_def()
 	/* Set the hidden doc_id column. */
 	if (m_flags2 & DICT_TF2_FTS) {
 		table->fts->doc_col = has_doc_id_col
-				      ? doc_id_col : s_cols;
+				      ? doc_id_col : n_cols - num_v;
 	}
 
 	if (strlen(m_temp_path) != 0) {
@@ -12149,12 +12168,9 @@ create_table_info_t::create_table_def()
 
 	for (i = 0; i < n_cols; i++) {
 		ulint	is_virtual;
-		bool	is_stored MY_ATTRIBUTE((unused));
-		Field*	field = m_form->field[i];
+		bool	is_stored = false;
 
-		if (!field->stored_in_db()) {
-			continue;
-		}
+		Field*	field = m_form->field[i];
 
 		/* Generate a unique column name by pre-pending table-name for
 		intrinsic tables. For other tables (including normal
@@ -12272,7 +12288,6 @@ err_col:
 					charset_no),
 				col_len);
 		} else {
-#ifdef MYSQL_VIRTUAL_COLUMNS
 			dict_mem_table_add_v_col(table, heap,
 				field_name, col_type,
 				dtype_form_prtype(
@@ -12281,26 +12296,18 @@ err_col:
 					| binary_type | long_true_varchar
 					| is_virtual,
 					charset_no),
-				col_len, i,
-				0);
+				col_len, i, 0);
+		}
 
-				field->gcol_info->non_virtual_base_columns());
-#endif
-	}
-
-#ifdef MYSQL_VIRTUAL_COLUMNS
 		if (is_stored) {
 			ut_ad(!is_virtual);
 			/* Added stored column in m_s_cols list. */
 			dict_mem_table_add_s_col(
-				table,
-				field->gcol_info->non_virtual_base_columns());
+				table, 0);
 		}
-#endif
 	}
-#ifdef MYSQL_VIRTUAL_COLUMNS
+
 	if (num_v) {
-		ulint		j = 0;
 		for (i = 0; i < n_cols; i++) {
 			dict_v_col_t*	v_col;
 
@@ -12341,7 +12348,6 @@ err_col:
 			}
 		}
 	}
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 	/* Add the FTS doc_id hidden column. */
 	if (m_flags2 & DICT_TF2_FTS && !has_doc_id_col) {
@@ -12374,7 +12380,6 @@ err_col:
 			my_error(ER_TABLESPACE_CANNOT_ENCRYPT, MYF(0));
 			err = DB_UNSUPPORTED;
 			dict_mem_table_free(table);
-			*/
 		} else {
 #endif /* MYSQL_COMPRESSION */
 			/* Get a new table ID */
@@ -14384,19 +14389,15 @@ create_table_info_t::create_table()
 				" table where referencing columns appear"
 				" as the first columns.\n", m_table_name);
 			break;
-#ifdef MYSQL_VIRTUAL_COLUMNS
-		case DB_NO_FK_ON_V_BASE_COL:
+		case DB_NO_FK_ON_S_BASE_COL:
 			push_warning_printf(
 				m_thd, Sql_condition::WARN_LEVEL_WARN,
 				HA_ERR_CANNOT_ADD_FOREIGN,
 				"Create table '%s' with foreign key constraint"
 				" failed. Cannot add foreign key constraint"
-				" placed on the base column of indexed"
-				" virtual column, or constraint placed"
-				" on columns being part of virtual index.\n",
+				" placed on the base column of stored"
+				" column. \n",
 				m_table_name);
-			break;
-#endif
 		default:
 			break;
 		}
@@ -24032,15 +24033,15 @@ innobase_init_vc_templ(
 	//	bool ret =
 #endif /* UNIV_DEBUG */
 
-	/* JAN: TODO: MySQL: 5.7 virtual columsn
 	handler::my_prepare_gcolumn_template(
 		thd, t_dbname, t_tbname,
 		&innobase_build_v_templ_callback,
 		static_cast<void*>(table));
 	ut_ad(!ret);
-	*/
 	mutex_exit(&dict_sys->mutex);
 }
+#endif /* MYSQL_VIRTUAL_COLUMNS */
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Change dbname and table name in table->vc_templ.
 @param[in,out]	table	the table whose virtual column template
@@ -24083,6 +24084,8 @@ innobase_rename_vc_templ(
 	table->vc_templ->db_name = t_dbname;
 	table->vc_templ->tb_name = t_tbname;
 }
+#endif /* MYSQL_VIRTUAL_COLUMNS */
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Get the updated parent field value from the update vector for the
 given col_no.
@@ -24123,6 +24126,8 @@ innobase_get_field_from_update_vector(
 	return (NULL);
 }
 
+#endif /* MYSQL_VIRTUAL_COLUMNS */
+#ifdef MYSQL_VIRTUAL_COLUMNS
 /** Get the computed value by supplying the base column values.
 @param[in,out]	row		the data row
 @param[in]	col		virtual column

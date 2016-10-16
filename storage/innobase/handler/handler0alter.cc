@@ -592,6 +592,10 @@ ha_innobase::check_if_supported_inplace_alter(
 {
 	DBUG_ENTER("check_if_supported_inplace_alter");
 
+// XXX temporarily disable online if virtual fields
+if (table->s->virtual_fields || altered_table->s->virtual_fields)
+  DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
+
 	if (high_level_read_only
 	    || srv_sys_space.created_new_raw()
 	    || srv_force_recovery) {
@@ -807,7 +811,6 @@ ha_innobase::check_if_supported_inplace_alter(
 	}
 
 #ifdef MYSQL_VIRTUAL_COLUMNS
-	// JAN: TODO: MySQL 5.7 Virtual columns
 	/* If there is add or drop virtual columns, we will support operations
 	with these 2 options alone with inplace interface for now */
 

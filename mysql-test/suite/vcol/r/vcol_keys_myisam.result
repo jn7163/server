@@ -238,11 +238,6 @@ ERROR HY000: Cannot define foreign key with ON UPDATE CASCADE clause on a comput
 alter table t1 add foreign key (b) references t2(a) on delete set null;
 ERROR HY000: Cannot define foreign key with ON DELETE SET NULL clause on a computed column
 drop table t1;
-create table t1 (a int, b int as (a+1), foreign key (b) references t2(a));
-drop table t1;
-create table t1 (a int, b int as (a+1));
-alter table t1 add foreign key (b) references t2(a);
-drop table t1;
 # Allowed FK options.
 create table t2 (a int primary key, b char(5));
 create table t1 (a int, b int as (a % 10) persistent,
