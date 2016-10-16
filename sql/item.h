@@ -3368,10 +3368,6 @@ public:
   }
 
   bool check_partition_func_processor(void *int_arg) {return TRUE;}
-  bool check_vcol_func_processor(void *arg) 
-  {
-    return mark_unsupported_function(func_name, arg, VCOL_IMPOSSIBLE);
-  }
 };
 
 
