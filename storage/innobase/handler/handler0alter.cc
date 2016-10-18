@@ -453,7 +453,6 @@ innobase_need_rebuild(
 	return(!!(ha_alter_info->handler_flags & INNOBASE_ALTER_REBUILD));
 }
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 /** Check if virtual column in old and new table are in order, excluding
 those dropped column. This is needed because when we drop a virtual column,
 ALTER_VIRTUAL_COLUMN_ORDER is also turned on, so we can't decide if this
@@ -514,7 +513,7 @@ check_v_col_in_order(
 		bool		dropped = false;
 		Alter_drop*	drop;
 
-		if (field->stored_in_db) {
+		if (field->stored_in_db()) {
 			continue;
 		}
 
@@ -541,7 +540,7 @@ check_v_col_in_order(
 		while (j < altered_table->s->fields) {
 			 Field*  new_field = altered_table->s->field[j];
 
-			if (new_field->stored_in_db) {
+			if (new_field->stored_in_db()) {
 				j++;
 				continue;
 			}
@@ -567,7 +566,6 @@ check_v_col_in_order(
 
 	return(true);
 }
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 /** Check if InnoDB supports a particular alter table in-place
 @param altered_table TABLE object for new version of table.
@@ -591,10 +589,6 @@ ha_innobase::check_if_supported_inplace_alter(
 	Alter_inplace_info*	ha_alter_info)
 {
 	DBUG_ENTER("check_if_supported_inplace_alter");
-
-// XXX temporarily disable online if virtual fields
-if (table->s->virtual_fields || altered_table->s->virtual_fields)
-  DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
 
 	if (high_level_read_only
 	    || srv_sys_space.created_new_raw()
@@ -866,7 +860,7 @@ if (table->s->virtual_fields || altered_table->s->virtual_fields)
 	     new_key++) {
 
 #ifdef MYSQL_VIRTUAL_COLUMNS
-		/* Do not support adding/droping a vritual column, while
+		/* Do not support adding/droping a virtual column, while
 		there is a table rebuild caused by adding a new FTS_DOC_ID */
 		if ((new_key->flags & HA_FULLTEXT) && add_drop_v_cols
 		    && !DICT_TF2_FLAG_IS_SET(m_prebuilt->table,
@@ -3685,7 +3679,6 @@ innobase_check_gis_columns(
 	DBUG_RETURN(DB_SUCCESS);
 }
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Collect virtual column info for its addition
 @param[in] ha_alter_info	Data used during in-place alter
@@ -3812,13 +3805,9 @@ prepare_inplace_add_virtual(
 		ctx->add_vcol[j].m_col.len = col_len;
 
 		ctx->add_vcol[j].m_col.ind = i - 1;
-		/*		ctx->add_vcol[j].num_base =
-		  field->gcol_info->non_virtual_base_columns();
-		*/
+		ctx->add_vcol[j].num_base = 0;
 		ctx->add_vcol_name[j] = field->field_name;
-		ctx->add_vcol[j].base_col = static_cast<dict_col_t**>(
-			mem_heap_alloc(ctx->heap, ctx->add_vcol[j].num_base
-				       * sizeof *(ctx->add_vcol[j].base_col)));
+		ctx->add_vcol[j].base_col = NULL;
 		ctx->add_vcol[j].v_pos = ctx->old_table->n_v_cols
 					 - ctx->num_to_drop_vcol + j;
 
@@ -3967,6 +3956,7 @@ prepare_inplace_drop_virtual(
 
 	return(false);
 }
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Insert a new record to INNODB SYS_VIRTUAL
 @param[in] table	InnoDB table
@@ -4001,6 +3991,8 @@ innobase_insert_sys_virtual(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update INNODB SYS_COLUMNS on new virtual columns
 @param[in] table	InnoDB table
@@ -4056,6 +4048,8 @@ innobase_add_one_virtual(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update INNODB SYS_TABLES on number of virtual columns
 @param[in] user_table	InnoDB table
@@ -4086,6 +4080,8 @@ innobase_update_n_virtual(
 
 	return(err);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update system table for adding virtual column(s)
 @param[in]	ha_alter_info	Data used during in-place alter
@@ -4146,6 +4142,8 @@ innobase_add_virtual_try(
 
 	return(false);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update INNODB SYS_COLUMNS on new virtual column's position
 @param[in]	table	InnoDB table
@@ -4180,6 +4178,8 @@ innobase_update_v_pos_sys_columns(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update INNODB SYS_VIRTUAL table with new virtual column position
 @param[in]	table		InnoDB table
@@ -4214,6 +4214,8 @@ innobase_update_v_pos_sys_virtual(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update InnoDB system tables on dropping a virtual column
 @param[in]	table		InnoDB table
@@ -4278,6 +4280,8 @@ innobase_drop_one_virtual_sys_columns(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Delete virtual column's info from INNODB SYS_VIRTUAL
 @param[in]	table	InnoDB table
@@ -4308,6 +4312,8 @@ innobase_drop_one_virtual_sys_virtual(
 
 	return(error);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Update system table for dropping virtual column(s)
 @param[in]	ha_alter_info	Data used during in-place alter
@@ -4377,6 +4383,8 @@ innobase_drop_virtual_try(
 
 	return(false);
 }
+#endif
+#ifdef MYSQL_VIRTUAL_COLUMNS
 
 /** Adjust the create index column number from "New table" to
 "old InnoDB table" while we are doing dropping virtual column. Since we do
@@ -4525,7 +4533,6 @@ prepare_inplace_alter_table_dict(
 
 	trx_start_if_not_started_xa(ctx->prebuilt->trx, true);
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 	if (ha_alter_info->handler_flags
 	    & Alter_inplace_info::DROP_VIRTUAL_COLUMN) {
 		if (prepare_inplace_drop_virtual(
@@ -4559,7 +4566,6 @@ prepare_inplace_alter_table_dict(
 	here
 	*/
 	ut_ad(check_v_col_in_order(old_table, altered_table, ha_alter_info));
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 	/* Create a background transaction for the operations on
 	the data dictionary tables. */
@@ -6319,7 +6325,6 @@ err_exit:
 
 		}
 
-#ifdef MYSQL_VIRTUAL_COLUMNS
 		if ((ha_alter_info->handler_flags
 		     & Alter_inplace_info::DROP_VIRTUAL_COLUMN)
 		    && prepare_inplace_drop_virtual(
@@ -6333,7 +6338,6 @@ err_exit:
 			    ha_alter_info, altered_table, table)) {
 			DBUG_RETURN(true);
 		}
-#endif /* MYSQL_VIRTUAL_COLUMNS */
 
 		DBUG_RETURN(false);
 	}
@@ -6378,12 +6382,12 @@ err_exit:
 				doc_col_no == fts_doc_col_no
 				|| doc_col_no == ULINT_UNDEFINED
 				|| (ha_alter_info->handler_flags));
-			/* JAN: TODO: MySQL 5.7 Virtual columns
+#ifdef MYSQL_VIRTUAL_COLUMNS
 				    & (Alter_inplace_info::ALTER_STORED_COLUMN_ORDER
 				       | Alter_inplace_info::DROP_STORED_COLUMN
 				       |
 				    Alter_inplace_info::ADD_STORED_COLUMN)));
-			*/
+#endif
 		}
 	}
 
