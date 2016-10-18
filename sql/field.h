@@ -3893,6 +3893,26 @@ int convert_null_to_field_value_or_error(Field *field);
 bool check_expression(Virtual_column_info *vcol, const char *type,
                       const char *name, bool must_be_deterministic);
 
+/* remove pointers from blobs fields to allocated values */
+static inline void unlink_blobs(Field **fields)
+{
+  for (Field **ptr=fields; *ptr; ptr++)
+  {
+    if ((*ptr)->flags & BLOB_FLAG)
+      ((Field_blob *) (*ptr))->clear_temporary();
+  }
+}
+
+/* free blobs stored in row */
+static inline void free_unlinked_blobs(Field **fields, int row_offset)
+{
+  for (Field **ptr=fields; *ptr; ptr++)
+  {
+    if ((*ptr)->flags & BLOB_FLAG)
+      my_free(((Field_blob *) (*ptr))->get_ptr(row_offset));
+  }
+}
+
 /*
   The following are for the interface with the .frm file
 */

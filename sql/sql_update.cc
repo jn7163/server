@@ -221,7 +221,6 @@ static void prepare_record_for_error_message(int error, TABLE *table)
   DBUG_VOID_RETURN;
 }
 
-
 /*
   Process usual UPDATE
 
@@ -254,8 +253,9 @@ int mysql_update(THD *thd,
                  ha_rows *found_return, ha_rows *updated_return)
 {
   bool		using_limit= limit != HA_POS_ERROR;
-  bool safe_update= MY_TEST(thd->variables.option_bits & OPTION_SAFE_UPDATES);
+  bool          safe_update= thd->variables.option_bits & OPTION_SAFE_UPDATES;
   bool          used_key_is_modified= FALSE, transactional_table, will_batch;
+  bool          free_vcol_blobs= false;
   bool		can_compare_record;
   int           res;
   int		error, loc_error;
@@ -745,6 +745,26 @@ int mysql_update(THD *thd,
 
       explain->tracker.on_record_after_where();
       store_record(table,record[1]);
+
+      /*
+        when updating a table with virtual BLOB columns, the following happens:
+        - an old record is read from the table, it has no vcol blob.
+        - update_virtual_fields() is run, vcol blob gets its value into the
+          record.  but only a pointer to the value is in the table->record[0],
+          the value is in Field_blob::value String.
+        - store_record(table,record[1]), old record is record[1]
+        - fill_record() prepares new values in record[0], vcol blob is updated,
+          new value replaces the old one in the Field_blob::value
+        - now both record[1] and record[0] have a pointer that points to the
+          *new* vcol blob value. Or record[1] has a pointer to nowhere if
+          Field_blob::value had to realloc.
+
+        To resolve this we unlink vcol blobs from the pointer to the
+        data (in the record[1]). The unlinked memory must be freed manually.
+      */
+      if ((free_vcol_blobs= table->s->virtual_fields && table->s->blob_fields))
+        unlink_blobs(table->vfield);
+
       if (fill_record_n_invoke_before_triggers(thd, table, fields, values, 0,
                                                TRG_EVENT_UPDATE))
         break; /* purecov: inspected */
@@ -904,7 +924,12 @@ int mysql_update(THD *thd,
       error= 1;
       break;
     }
+    if (free_vcol_blobs)
+      free_unlinked_blobs(table->vfield, table->s->rec_buff_length);
+    free_vcol_blobs= false;
   }
+  if (free_vcol_blobs)
+    free_unlinked_blobs(table->vfield, table->s->rec_buff_length);
   ANALYZE_STOP_TRACKING(&explain->command_tracker);
   table->auto_increment_field_not_null= FALSE;
   dup_key_found= 0;
@@ -2382,6 +2407,10 @@ int multi_update::do_updates()
         }
         field_num++;
       } while ((tbl= check_opt_it++));
+
+      if (table->vfield &&
+          update_virtual_fields(thd, table, VCOL_UPDATE_INDEXED))
+        goto err2;
 
       table->status|= STATUS_UPDATED;
       store_record(table,record[1]);

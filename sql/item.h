@@ -1669,6 +1669,8 @@ public:
     return mark_unsupported_function(full_name(), arg, VCOL_IMPOSSIBLE);
   }
 
+  virtual bool check_func_default_processor(void *arg) { return false; }
+
   virtual bool check_field_expression_processor(void *arg) { return FALSE; }
 
   /* arg points to REPLACE_EQUAL_FIELD_ARG object */
@@ -5086,6 +5088,7 @@ public:
   int save_in_field(Field *field_arg, bool no_conversions);
   table_map used_tables() const { return (table_map)0L; }
   Item_field *field_for_view_update() { return 0; }
+  bool check_func_default_processor(void *arg) { return true; }
 
   bool walk(Item_processor processor, bool walk_subquery, void *args)
   {

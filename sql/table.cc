@@ -7317,7 +7317,8 @@ int update_virtual_fields(THD *thd, TABLE *table,
       update= table->triggers || bitmap_is_set(table->vcol_set, vfield->field_index);
       break;
     case VCOL_UPDATE_INDEXED:
-      update= !vcol_info->stored_in_db && (vfield->flags & PART_KEY_FLAG);
+      update= !vcol_info->stored_in_db && (vfield->flags & PART_KEY_FLAG)
+           && bitmap_is_set(table->vcol_set, vfield->field_index);
       break;
     }
 

@@ -87,7 +87,6 @@ static int write_delayed(THD *thd, TABLE *table, enum_duplicates duplic,
                          LEX_STRING query, bool ignore, bool log_on);
 static void end_delayed_insert(THD *thd);
 pthread_handler_t handle_delayed_insert(void *arg);
-static void unlink_blobs(register TABLE *table);
 #endif
 static bool check_view_insertability(THD *thd, TABLE_LIST *view);
 
@@ -1949,7 +1948,7 @@ int check_that_all_fields_are_given_values(THD *thd, TABLE *entry,
 
 class delayed_row :public ilink {
 public:
-  char *record;
+  uchar *record;
   enum_duplicates dup;
   my_time_t start_time;
   ulong start_time_sec_part;
@@ -2589,7 +2588,7 @@ int write_delayed(THD *thd, TABLE *table, enum_duplicates duplic,
   }
 
   /* This can't be THREAD_SPECIFIC as it's freed in delayed thread */
-  if (!(row->record= (char*) my_malloc(table->s->reclength,
+  if (!(row->record= (uchar*) my_malloc(table->s->reclength,
                                        MYF(MY_WME))))
     goto err;
   memcpy(row->record, table->record[0], table->s->reclength);
@@ -2639,7 +2638,7 @@ int write_delayed(THD *thd, TABLE *table, enum_duplicates duplic,
   di->stacked_inserts++;
   di->status=1;
   if (table->s->blob_fields)
-    unlink_blobs(table);
+    unlink_blobs(table->field);
   mysql_cond_signal(&di->cond);
 
   thread_safe_increment(delayed_rows_in_use,&LOCK_delayed_status);
@@ -3083,32 +3082,6 @@ pthread_handler_t handle_delayed_insert(void *arg)
 }
 
 
-/* Remove pointers from temporary fields to allocated values */
-
-static void unlink_blobs(register TABLE *table)
-{
-  for (Field **ptr=table->field ; *ptr ; ptr++)
-  {
-    if ((*ptr)->flags & BLOB_FLAG)
-      ((Field_blob *) (*ptr))->clear_temporary();
-  }
-}
-
-/* Free blobs stored in current row */
-
-static void free_delayed_insert_blobs(register TABLE *table)
-{
-  for (Field **ptr=table->field ; *ptr ; ptr++)
-  {
-    if ((*ptr)->flags & BLOB_FLAG)
-    {
-      my_free(((Field_blob *) (*ptr))->get_ptr());
-      ((Field_blob *) (*ptr))->reset();
-    }
-  }
-}
-
-
 bool Delayed_insert::handle_inserts(void)
 {
   int error;
@@ -3250,7 +3223,7 @@ bool Delayed_insert::handle_inserts(void)
     }
 
     if (table->s->blob_fields)
-      free_delayed_insert_blobs(table);
+      free_unlinked_blobs(table->field, 0);
     thread_safe_decrement(delayed_rows_in_use,&LOCK_delayed_status);
     thread_safe_increment(delayed_insert_writes,&LOCK_delayed_status);
     mysql_mutex_lock(&mutex);
@@ -3350,10 +3323,7 @@ bool Delayed_insert::handle_inserts(void)
   while ((row=rows.get()))
   {
     if (table->s->blob_fields)
-    {
-      memcpy(table->record[0],row->record,table->s->reclength);
-      free_delayed_insert_blobs(table);
-    }
+      free_unlinked_blobs(table->field, row->record - table->record[0]);
     delete row;
     thread_safe_increment(delayed_insert_errors,&LOCK_delayed_status);
     stacked_inserts--;
