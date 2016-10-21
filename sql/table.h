@@ -1422,6 +1422,7 @@ public:
 
   uint actual_n_key_parts(KEY *keyinfo);
   ulong actual_key_flags(KEY *keyinfo);
+  int update_virtual_fields(enum_vcol_update_mode update_mode);
   int update_default_fields(bool update, bool ignore_errors);
   void reset_default_fields();
   inline ha_rows stat_records() { return used_stat_records; }
@@ -2641,8 +2642,6 @@ Virtual_column_info *unpack_vcol_info_from_frm(THD *thd, MEM_ROOT *mem_root,
                                                Field *field,
                                                Virtual_column_info *vcol,
                                                bool *error_reported);
-int update_virtual_fields(THD *thd, TABLE *table,
-      enum enum_vcol_update_mode vcol_update_mode= VCOL_UPDATE_FOR_READ);
 TABLE_SHARE *alloc_table_share(const char *db, const char *table_name,
                                const char *key, uint key_length);
 void init_tmp_table_share(THD *thd, TABLE_SHARE *share, const char *key,

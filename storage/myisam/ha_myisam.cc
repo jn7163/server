@@ -672,7 +672,7 @@ int compute_vcols(MI_INFO *info, uchar *record)
 {
   TABLE *table= (TABLE*)(info->external_ref);
   move_fields(table, record);
-  return update_virtual_fields(table->in_use, table, VCOL_UPDATE_INDEXED);
+  return table->update_virtual_fields(VCOL_UPDATE_INDEXED);
 }
 
 }
