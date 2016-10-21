@@ -2704,11 +2704,10 @@ innobase_mysql_tmpfile(
 			char errbuf[MYSYS_STRERROR_SIZE];
 			DBUG_PRINT("error",("Got error %d on dup",fd2));
 			set_my_errno(errno);
-			my_strerror(errbuf, sizeof(errbuf), my_errno);
 			my_error(EE_OUT_OF_FILERESOURCES,
 				 MYF(0),
-				 "ib*", my_errno,
-				 errbuf);
+				 "ib*", errno,
+				  my_strerror(errbuf, sizeof(errbuf), errno));
 		}
 		my_close(fd, MYF(MY_WME));
 	}
@@ -4051,12 +4050,6 @@ innobase_init(
 	innobase_hton->commit_by_xid = innobase_commit_by_xid;
 	innobase_hton->rollback_by_xid = innobase_rollback_by_xid;
 	innobase_hton->commit_checkpoint_request=innobase_checkpoint_request;
-
-#ifdef INNOBASE_CURSOR_VIEW
-	innobase_hton->create_cursor_read_view = innobase_create_cursor_view;
-	innobase_hton->set_cursor_read_view = innobase_set_cursor_view;
-	innobase_hton->close_cursor_read_view = innobase_close_cursor_view;
-#endif
 	innobase_hton->create = innobase_create_handler;
 
 #ifdef MYSQL_TABLESPACES
@@ -6892,12 +6885,12 @@ ha_innobase::open(
 	    && ((!DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
 		 && table->s->fields != dict_table_get_n_tot_u_cols(ib_table))
 		|| (DICT_TF2_FLAG_IS_SET(ib_table, DICT_TF2_FTS_HAS_DOC_ID)
-		    && (table->s->stored_fields
+		    && (table->s->fields
 			!= dict_table_get_n_tot_u_cols(ib_table) - 1)))) {
 
 		ib::warn() << "Table " << norm_name << " contains "
 			<< dict_table_get_n_user_cols(ib_table) << " user"
-			" defined columns in InnoDB, but " << table->s->stored_fields
+			" defined columns in InnoDB, but " << table->s->fields
 			<< " columns in MariaDB. Please check"
 			" INFORMATION_SCHEMA.INNODB_SYS_COLUMNS and " REFMAN
 			"innodb-troubleshooting.html for how to resolve the"
@@ -7043,7 +7036,7 @@ ha_innobase::open(
 		DBUG_RETURN(ret_err);
 	}
 
-	m_prebuilt = row_create_prebuilt(ib_table, table->s->stored_rec_length);
+	m_prebuilt = row_create_prebuilt(ib_table, table->s->reclength);
 
 	m_prebuilt->default_rec = table->s->default_values;
 	ut_ad(m_prebuilt->default_rec);
@@ -19768,64 +19761,6 @@ innobase_rollback_by_xid(
 		return(XAER_NOTA);
 	}
 }
-
-#ifdef INNOBASE_CURSOR_VIEW
-
-/*******************************************************************//**
-Create a consistent view for a cursor based on current transaction
-which is created if the corresponding MySQL thread still lacks one.
-This consistent view is then used inside of MySQL when accessing records
-using a cursor.
-@return	pointer to cursor view or NULL */
-static
-void*
-innobase_create_cursor_view(
-/*========================*/
-	handlerton*	hton,	/*!< in: innobase hton */
-	THD*		thd)	/*!< in: user thread handle */
-{
-	DBUG_ASSERT(hton == innodb_hton_ptr);
-
-	return(read_cursor_view_create_for_mysql(check_trx_exists(thd)));
-}
-
-/*******************************************************************//**
-Close the given consistent cursor view of a transaction and restore
-global read view to a transaction read view. Transaction is created if the
-corresponding MySQL thread still lacks one. */
-static
-void
-innobase_close_cursor_view(
-/*=======================*/
-	handlerton*	hton,	/*!< in: innobase hton */
-	THD*		thd,	/*!< in: user thread handle */
-	void*		curview)/*!< in: Consistent read view to be closed */
-{
-	DBUG_ASSERT(hton == innodb_hton_ptr);
-
-	read_cursor_view_close_for_mysql(check_trx_exists(thd),
-					 (cursor_view_t*) curview);
-}
-
-/*******************************************************************//**
-Set the given consistent cursor view to a transaction which is created
-if the corresponding MySQL thread still lacks one. If the given
-consistent cursor view is NULL global read view of a transaction is
-restored to a transaction read view. */
-static
-void
-innobase_set_cursor_view(
-/*=====================*/
-	handlerton*	hton,	/*!< in: innobase hton */
-	THD*		thd,	/*!< in: user thread handle */
-	void*		curview)/*!< in: Consistent cursor view to be set */
-{
-	DBUG_ASSERT(hton == innodb_hton_ptr);
-
-	read_cursor_set_for_mysql(check_trx_exists(thd),
-				  (cursor_view_t*) curview);
-}
-#endif /* INNOBASE_CURSOR_VIEW */
 
 bool
 ha_innobase::check_if_incompatible_data(
