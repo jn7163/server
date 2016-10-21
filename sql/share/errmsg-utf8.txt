@@ -7232,3 +7232,6 @@ ER_PARTITION_DEFAULT_ERROR
         ukr "Припустимо мати тільки один DEFAULT розділ" 
 ER_REFERENCED_TRG_DOES_NOT_EXIST
   eng "Referenced trigger '%s' for the given action time and event type does not exist"
+ER_WRONG_PARAMCOUNT_TO_CURSOR 42000 
+        eng "Incorrect parameter count to cursor '%-.192s'"
+        rus "Некорректное количество параметров для курсора '%-.192s'"
