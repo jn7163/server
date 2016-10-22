@@ -24019,6 +24019,14 @@ innobase_get_computed_value(
 	byte*		buf;
 	dfield_t*	field;
 	ulint		len;
+#ifndef DBUG_OFF
+        my_bitmap_map   *old_write_set=dbug_tmp_use_all_columns(mysql_table,
+                                                       mysql_table->write_set);
+        my_bitmap_map   *old_read_set=mysql_table->read_set->bitmap;
+        mysql_table->read_set->bitmap=
+          (my_bitmap_map*)alloca(no_bytes_in_map(mysql_table->read_set));
+        bitmap_clear_all(mysql_table->read_set);
+#endif
 
 	const page_size_t page_size = (old_table == NULL)
 		? dict_table_page_size(index->table)
@@ -24048,6 +24056,9 @@ innobase_get_computed_value(
 		buf = rec_buf2;
 	}
 
+        if (mysql_table)
+          mysql_rec= mysql_table->record[0];
+
 	for (ulint i = 0; i < col->num_base; i++) {
 		dict_col_t*			base_col = col->base_col[i];
 		const dfield_t*			row_field = NULL;
@@ -24055,6 +24066,10 @@ innobase_get_computed_value(
 		const mysql_row_templ_t*	templ
 			= index->table->vc_templ->vtempl[col_no];
 		const byte*			data;
+
+#ifndef DBUG_OFF
+                bitmap_set_bit(mysql_table->read_set, col_no);
+#endif
 
 		if (parent_update != NULL) {
 			/** Get the updated field from update vector
@@ -24106,16 +24121,6 @@ innobase_get_computed_value(
 
 	field = dtuple_get_nth_v_field(row, col->v_pos);
 
-	/* Bitmap for specifying which virtual columns the server
-	should evaluate */
-	MY_BITMAP	column_map;
-	my_bitmap_map	col_map_storage[bitmap_buffer_size(REC_MAX_N_FIELDS)];
-
-	bitmap_init(&column_map, col_map_storage, REC_MAX_N_FIELDS, false);
-
-	/* Specify the column the server should evaluate */
-	bitmap_set_bit(&column_map, col->m_col.ind);
-
 	if (mysql_table == NULL) {
 		if (vctempl->type == DATA_BLOB) {
 			ulint	max_len;
@@ -24139,12 +24144,14 @@ innobase_get_computed_value(
 
 		ret = 1; /*handler::my_eval_gcolumn_expr_with_open(
 			thd, index->table->vc_templ->db_name.c_str(),
-			index->table->vc_templ->tb_name.c_str(), &column_map,
+			index->table->vc_templ->tb_name.c_str(), col->m_col.ind,
 			(uchar *)mysql_rec); MYSQL_VIRTUAL_COLUMNS*/
         } else {
-		ret = 1; /*handler::my_eval_gcolumn_expr(
-			thd, mysql_table, &column_map,
-			(uchar *)mysql_rec); MYSQL_VIRTUAL_COLUMNS*/
+                Field *vf= mysql_table->field[col->m_col.ind];
+                vf->vcol_info->expr_item->save_in_field(vf, 0);
+                dbug_tmp_restore_column_map(mysql_table->read_set, old_read_set);
+                dbug_tmp_restore_column_map(mysql_table->write_set, old_write_set);
+		ret = 0;
 	}
 
 	if (ret != 0) {
