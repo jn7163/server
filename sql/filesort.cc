@@ -47,32 +47,20 @@ if (my_b_write((file),(uchar*) (from),param->ref_length)) \
 
 	/* functions defined in this file */
 
-static uchar *read_buffpek_from_file(IO_CACHE *buffer_file, uint count,
-                                     uchar *buf);
-static ha_rows find_all_keys(THD *thd, Sort_param *param, SQL_SELECT *select,
-                             SORT_INFO *fs_info,
-                             IO_CACHE *buffer_file,
-                             IO_CACHE *tempfile,
-                             Bounded_queue<uchar, uchar> *pq,
-                             ha_rows *found_rows);
-static bool write_keys(Sort_param *param, SORT_INFO *fs_info,
-                      uint count, IO_CACHE *buffer_file, IO_CACHE *tempfile);
-static void make_sortkey(Sort_param *param, uchar *to, uchar *ref_pos);
-static void register_used_fields(Sort_param *param);
-static bool save_index(Sort_param *param, uint count,
-                       SORT_INFO *table_sort);
-static uint suffix_length(ulong string_length);
-static uint sortlength(THD *thd, SORT_FIELD *sortorder, uint s_length,
-		       bool *multi_byte_charset);
-static SORT_ADDON_FIELD *get_addon_fields(ulong max_length_for_sort_data,
-                                          Field **ptabfield,
-                                          uint sortlength,
-                                          LEX_STRING *addon_buf);
-static void unpack_addon_fields(struct st_sort_addon_field *addon_field,
-                                uchar *buff, uchar *buff_end);
+static uchar *read_buffpek_from_file(IO_CACHE *, uint, uchar *);
+static ha_rows find_all_keys(THD *, Sort_param *, SQL_SELECT *, SORT_INFO *,
+                             IO_CACHE *, IO_CACHE *,
+                             Bounded_queue<uchar, uchar> *, ha_rows *);
+static bool write_keys(Sort_param *, SORT_INFO *, uint, IO_CACHE *, IO_CACHE *);
+static void make_sortkey(Sort_param *, uchar *, uchar *);
+static void register_used_fields(Sort_param *);
+static bool save_index(Sort_param *, uint, SORT_INFO *);
+static uint suffix_length(ulong);
+static uint sortlength(THD *, SORT_FIELD *, uint, bool *);
+static SORT_ADDON_FIELD *get_addon_fields(ulong, Field **, uint, LEX_STRING *);
+static void unpack_addon_fields(struct st_sort_addon_field *, uchar *, uchar *);
 static bool check_if_pq_applicable(Sort_param *param, SORT_INFO *info,
-                                   TABLE *table,
-                                   ha_rows records, ulong memory_available);
+                                   TABLE *, ha_rows, ulong);
 
 void Sort_param::init_for_filesort(uint sortlen, TABLE *table,
                                    ulong max_length_for_sort_data,
