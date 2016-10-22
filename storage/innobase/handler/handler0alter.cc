@@ -59,7 +59,7 @@ Smart ALTER TABLE
 #include <sql_acl.h>	// PROCESS_ACL
 #endif
 
-const char *MSG_UNSUPPORTED_ALTER_ONLINE_ON_VIRTUAL_COLUMN=
+static const char *MSG_UNSUPPORTED_ALTER_ONLINE_ON_VIRTUAL_COLUMN=
                "INPLACE ADD or DROP of virtual columns cannot be "
                "combined with other ALTER TABLE actions";
 
@@ -505,9 +505,7 @@ check_v_col_in_order(
 	}
 
 	for (ulint i = 0; i < table->s->fields; i++) {
-		Field*		field = table->s->field[i];
-		bool		dropped = false;
-		Alter_drop*	drop;
+		Field*		field = table->field[i];
 
 		if (field->stored_in_db()) {
 			continue;
@@ -515,19 +513,7 @@ check_v_col_in_order(
 
 		ut_ad(innobase_is_v_fld(field));
 
-		/* Check if this column is in drop list */
-		List_iterator_fast<Alter_drop> cf_it(
-			ha_alter_info->alter_info->drop_list);
-
-		while ((drop = (cf_it++)) != NULL) {
-			if (my_strcasecmp(system_charset_info,
-					  field->field_name, drop->name) == 0) {
-				dropped = true;
-				break;
-			}
-		}
-
-		if (dropped) {
+		if (field->flags & FIELD_IS_DROPPED) {
 			continue;
 		}
 
@@ -585,10 +571,6 @@ ha_innobase::check_if_supported_inplace_alter(
 	Alter_inplace_info*	ha_alter_info)
 {
 	DBUG_ENTER("check_if_supported_inplace_alter");
-
-        // MYSQL_VIRTUAL_COLUMNS
-        if (table->s->virtual_fields || altered_table->s->virtual_fields)
-            DBUG_RETURN(HA_ALTER_INPLACE_NOT_SUPPORTED);
 
 	if (high_level_read_only
 	    || srv_sys_space.created_new_raw()
@@ -817,6 +799,7 @@ ha_innobase::check_if_supported_inplace_alter(
 			   | Alter_inplace_info::DROP_VIRTUAL_COLUMN
 			   | Alter_inplace_info::ALTER_VIRTUAL_COLUMN_ORDER
 		           | Alter_inplace_info::ALTER_VIRTUAL_GCOL_EXPR
+		           | Alter_inplace_info::ALTER_COLUMN_VCOL
 		/*
 			   | Alter_inplace_info::ALTER_STORED_COLUMN_ORDER
 			   | Alter_inplace_info::ADD_STORED_BASE_COLUMN
@@ -3755,12 +3738,16 @@ prepare_inplace_drop_virtual(
 	ha_innobase_inplace_ctx*	ctx;
 	ulint				i = 0;
 	ulint				j = 0;
-	Alter_drop *drop;
 
 	ctx = static_cast<ha_innobase_inplace_ctx*>
 		(ha_alter_info->handler_ctx);
 
-	ctx->num_to_drop_vcol = ha_alter_info->alter_info->drop_list.elements;
+	ctx->num_to_drop_vcol = 0;
+	for (i = 0; table->field[i]; i++) {
+		const Field* field = table->field[i];
+                if (field->flags & FIELD_IS_DROPPED && !field->stored_in_db())
+	                ctx->num_to_drop_vcol++;
+	}
 
 	ctx->drop_vcol = static_cast<dict_v_col_t*>(
 		 mem_heap_alloc(ctx->heap, ctx->num_to_drop_vcol
@@ -3769,46 +3756,20 @@ prepare_inplace_drop_virtual(
 		 mem_heap_alloc(ctx->heap, ctx->num_to_drop_vcol
 				* sizeof *ctx->drop_vcol_name));
 
-	List_iterator_fast<Alter_drop> cf_it(
-		ha_alter_info->alter_info->drop_list);
-
-	while ((drop = (cf_it++)) != NULL) {
-		const Field* field;
-		ulint	old_i;
-
-		ut_ad(drop->type == Alter_drop::COLUMN);
-
-		for (old_i = 0; table->field[old_i]; old_i++) {
-			const Field* n_field = table->field[old_i];
-			if (!my_strcasecmp(system_charset_info,
-					   n_field->field_name, drop->name)) {
-				break;
-			}
-		}
-
-		i++;
-
-		if (!table->field[old_i]) {
-			continue;
-		}
+	for (i = 0; table->field[i]; i++) {
+		Field *field =  table->field[i];
+                if (!(field->flags & FIELD_IS_DROPPED) || field->stored_in_db()) {
+                        continue;
+                }
 
 		ulint	col_len;
 		ulint	is_unsigned;
 		ulint	field_type;
 		ulint	charset_no;
 
-		field =  table->field[old_i];
-
 		ulint           col_type
                                 = get_innobase_type_from_mysql_type(
                                         &is_unsigned, field);
-
-
-		if (!innobase_is_v_fld(field)) {
-			my_error(ER_WRONG_KEY_COLUMN, MYF(0),
-				 field->field_name);
-			return(true);
-		}
 
 		col_len = field->pack_length();
 		field_type = (ulint) field->type();
@@ -3863,12 +3824,12 @@ prepare_inplace_drop_virtual(
 
 		ctx->drop_vcol[j].m_col.len = col_len;
 
-		ctx->drop_vcol[j].m_col.ind = old_i;
+		ctx->drop_vcol[j].m_col.ind = i;
 
 		ctx->drop_vcol_name[j] = field->field_name;
 
 		dict_v_col_t*	v_col = dict_table_get_nth_v_col_mysql(
-					ctx->old_table, old_i);
+					ctx->old_table, i);
 		ctx->drop_vcol[j].v_pos = v_col->v_pos;
 		j++;
 	}

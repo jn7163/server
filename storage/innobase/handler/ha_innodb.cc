@@ -24020,12 +24020,8 @@ innobase_get_computed_value(
 	dfield_t*	field;
 	ulint		len;
 #ifndef DBUG_OFF
-        my_bitmap_map   *old_write_set=dbug_tmp_use_all_columns(mysql_table,
-                                                       mysql_table->write_set);
-        my_bitmap_map   *old_read_set=mysql_table->read_set->bitmap;
-        mysql_table->read_set->bitmap=
-          (my_bitmap_map*)alloca(no_bytes_in_map(mysql_table->read_set));
-        bitmap_clear_all(mysql_table->read_set);
+        my_bitmap_map   *old_write_set=dbug_tmp_use_all_columns(mysql_table, mysql_table->write_set);
+        my_bitmap_map   *old_read_set=dbug_tmp_use_all_columns(mysql_table, mysql_table->read_set);
 #endif
 
 	const page_size_t page_size = (old_table == NULL)
@@ -24066,10 +24062,6 @@ innobase_get_computed_value(
 		const mysql_row_templ_t*	templ
 			= index->table->vc_templ->vtempl[col_no];
 		const byte*			data;
-
-#ifndef DBUG_OFF
-                bitmap_set_bit(mysql_table->read_set, col_no);
-#endif
 
 		if (parent_update != NULL) {
 			/** Get the updated field from update vector
