@@ -104,6 +104,7 @@ connection default;
 SELECT * FROM t;
 
 DROP TABLE t;
+SET DEBUG_SYNC = 'RESET';
 
 # Wait till all disconnects are completed
 --source include/wait_until_count_sessions.inc

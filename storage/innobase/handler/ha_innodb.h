@@ -119,6 +119,8 @@ public:
 
 	const key_map* keys_to_use_for_scanning();
 
+        void column_bitmaps_signal();
+
 	/** Opens dictionary table object using table name. For partition, we need to
 	try alternative lower/upper case names to support moving data files across
 	platforms.

@@ -5921,6 +5921,32 @@ ha_innobase::keys_to_use_for_scanning()
 }
 
 /****************************************************************//**
+Ensures that if primary key columns are modified, all
+indexed virtual columns are computed - as we're going to update
+all indexes */
+
+void ha_innobase::column_bitmaps_signal()
+/*=====================================*/
+{
+        if (!table->vfield || table->s->primary_key == MAX_KEY)
+	        return;
+
+        KEY *pk= table->key_info + table->s->primary_key;
+        for (uint i=0; i < pk->user_defined_key_parts; i++) {
+                if (bitmap_is_set(table->write_set, pk->key_part[i].fieldnr - 1)) {
+                        goto found;
+                }
+        }
+        return;
+
+found:
+        for (uint j=0; j < table->s->virtual_fields; j++) {
+                bitmap_set_bit(table->vcol_set, table->vfield[j]->field_index);
+        }
+}
+
+
+/****************************************************************//**
 Determines if table caching is supported.
 @return HA_CACHE_TBL_ASKTRANSACT */
 
@@ -23900,6 +23926,7 @@ innobase_init_vc_templ(
 		&innobase_build_v_templ_callback,
 		static_cast<void*>(table));
 	ut_ad(!ret); MYSQL_VIRTUAL_COLUMNS*/
+        ut_ad(0);
 	mutex_exit(&dict_sys->mutex);
 }
 
@@ -24019,10 +24046,8 @@ innobase_get_computed_value(
 	byte*		buf;
 	dfield_t*	field;
 	ulint		len;
-#ifndef DBUG_OFF
         my_bitmap_map   *old_write_set=dbug_tmp_use_all_columns(mysql_table, mysql_table->write_set);
         my_bitmap_map   *old_read_set=dbug_tmp_use_all_columns(mysql_table, mysql_table->read_set);
-#endif
 
 	const page_size_t page_size = (old_table == NULL)
 		? dict_table_page_size(index->table)
@@ -24138,6 +24163,7 @@ innobase_get_computed_value(
 			thd, index->table->vc_templ->db_name.c_str(),
 			index->table->vc_templ->tb_name.c_str(), col->m_col.ind,
 			(uchar *)mysql_rec); MYSQL_VIRTUAL_COLUMNS*/
+                ut_ad(0);
         } else {
                 Field *vf= mysql_table->field[col->m_col.ind];
                 vf->vcol_info->expr_item->save_in_field(vf, 0);
