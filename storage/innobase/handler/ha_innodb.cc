@@ -842,13 +842,30 @@ innobase_map_isolation_level(
 
 /** Gets field offset for a field in a table.
 @param[in]	table	MySQL table object
-@param[in]	field	MySQL field object
+@param[in]	field	MySQL field object (from table->field array)
 @return offset */
 static inline
 uint
 get_field_offset(
 	const TABLE*	table,
-	const Field*	field);
+	const Field*	field)
+{
+	return(static_cast<uint>((field->ptr - table->record[0])));
+}
+
+
+/** Gets field offset for a field in a table.
+@param[in]	share	MySQL table share object
+@param[in]	field	MySQL field object (from share->field array)
+@return offset */
+static inline
+uint
+get_field_offset(
+	const TABLE_SHARE*	share,
+	const Field*		field)
+{
+	return(static_cast<uint>((field->ptr - share->default_values)));
+}
 
 /*************************************************************//**
 Check for a valid value of innobase_compression_algorithm.
@@ -6289,7 +6306,7 @@ innobase_match_index_columns(
 }
 
 /** Build a template for a base column for a virtual column
-@param[in]	table		MySQL TABLE
+@param[in]	share		MySQL TABLE_SHARE
 @param[in]	clust_index	InnoDB clustered index
 @param[in]	field		field in MySQL table
 @param[in]	col		InnoDB column
@@ -6299,7 +6316,7 @@ innobase_match_index_columns(
 static
 void
 innobase_vcol_build_templ(
-	const TABLE*		table,
+	const TABLE_SHARE*	share,
 	dict_index_t*		clust_index,
 	Field*			field,
 	const dict_col_t*	col,
@@ -6331,7 +6348,7 @@ innobase_vcol_build_templ(
         }
 
         templ->mysql_col_offset = static_cast<ulint>(
-					get_field_offset(table, field));
+					get_field_offset(share, field));
 	templ->mysql_col_len = static_cast<ulint>(field->pack_length());
         templ->type = col->mtype;
         templ->mysql_type = static_cast<ulint>(field->type());
@@ -6358,27 +6375,24 @@ innobase_build_v_templ_callback(
 {
 	const dict_table_t* t_table = static_cast<dict_table_t*>(ib_table);
 
-	innobase_build_v_templ(table, t_table, t_table->vc_templ, NULL,
-			       true, NULL);
+	innobase_build_v_templ(table->s, t_table, t_table->vc_templ, NULL, true);
 }
 
 /** Build template for the virtual columns and their base columns. This
 is done when the table first opened.
-@param[in]	table		MySQL TABLE
+@param[in]	share		MySQL TABLE_SHARE
 @param[in]	ib_table	InnoDB dict_table_t
 @param[in,out]	s_templ		InnoDB template structure
 @param[in]	add_v		new virtual columns added along with
 				add index call
-@param[in]	locked		true if dict_sys mutex is held
-@param[in]	share_tbl_name	original MySQL table name */
+@param[in]	locked		true if dict_sys mutex is held */
 void
 innobase_build_v_templ(
-	const TABLE*		table,
+	const TABLE_SHARE*	share,
 	const dict_table_t*	ib_table,
 	dict_vcol_templ_t*	s_templ,
 	const dict_add_v_col_t*	add_v,
-	bool			locked,
-	const char*		share_tbl_name)
+	bool			locked)
 {
 	ulint	ncol = ib_table->n_cols - DATA_N_SYS_COLS;
 	ulint	n_v_col = ib_table->n_v_cols;
@@ -6410,14 +6424,14 @@ innobase_build_v_templ(
 				* sizeof *s_templ->vtempl));
 	s_templ->n_col = ncol;
 	s_templ->n_v_col = n_v_col;
-	s_templ->rec_len = table->s->reclength;
+	s_templ->rec_len = share->reclength;
 	// JAN: MySQL 5.6
-	// s_templ->default_rec = table->s->default_values;
+	// s_templ->default_rec = share->default_values;
 
 	s_templ->default_rec = static_cast<byte*>(
-		ut_malloc_nokey(table->s->reclength));
-	memcpy(s_templ->default_rec, table->s->default_values,
-	       table->s->reclength);
+		ut_malloc_nokey(share->reclength));
+	memcpy(s_templ->default_rec, share->default_values,
+	       share->reclength);
 
 	/* Mark those columns could be base columns */
 	for (ulint i = 0; i < ib_table->n_v_cols; i++) {
@@ -6446,8 +6460,8 @@ innobase_build_v_templ(
 
 	dict_index_t*	clust_index = dict_table_get_first_index(ib_table);
 
-	for (ulint i = 0; i < table->s->fields; i++) {
-		Field*  field = table->field[i];
+	for (ulint i = 0; i < share->fields; i++) {
+		Field*  field = share->field[i];
 
 		/* Build template for virtual columns */
 		if (innobase_is_v_fld(field)) {
@@ -6476,7 +6490,7 @@ innobase_build_v_templ(
 					sizeof *s_templ->vtempl[j]));
 
 			innobase_vcol_build_templ(
-				table, clust_index, field,
+				share, clust_index, field,
 				&vcol->m_col,
 				s_templ->vtempl[z + s_templ->n_col],
 				z);
@@ -6504,7 +6518,7 @@ innobase_build_v_templ(
 					sizeof *s_templ->vtempl[j]));
 
 			innobase_vcol_build_templ(
-				table, clust_index, field, col,
+				share, clust_index, field, col,
 				s_templ->vtempl[j], j);
 		}
 
@@ -6515,12 +6529,8 @@ innobase_build_v_templ(
 		mutex_exit(&dict_sys->mutex);
 	}
 
-	s_templ->db_name = table->s->db.str;
-	s_templ->tb_name = table->s->table_name.str;
-
-	if (share_tbl_name) {
-		s_templ->share_name = share_tbl_name;
-	}
+	s_templ->db_name = share->db.str;
+	s_templ->tb_name = share->table_name.str;
 }
 
 /*******************************************************************//**
@@ -7093,8 +7103,8 @@ ha_innobase::open(
 
 		if (ib_table->vc_templ->vtempl == NULL) {
 			innobase_build_v_templ(
-				table, ib_table, ib_table->vc_templ, NULL,
-				true, m_share->table_name);
+				table->s, ib_table, ib_table->vc_templ, NULL,
+				true);
 		}
 
 		mutex_exit(&dict_sys->mutex);
@@ -7445,19 +7455,6 @@ ha_innobase::close()
 }
 
 /* The following accessor functions should really be inside MySQL code! */
-
-/** Gets field offset for a field in a table.
-@param[in]	table	MySQL table object
-@param[in]	field	MySQL field object
-@return offset */
-static inline
-uint
-get_field_offset(
-	const TABLE*	table,
-	const Field*	field)
-{
-	return(static_cast<uint>((field->ptr - table->record[0])));
-}
 
 #ifdef WITH_WSREP
 UNIV_INTERN

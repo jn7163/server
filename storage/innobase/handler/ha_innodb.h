@@ -1127,21 +1127,19 @@ innodb_rec_per_key(
 	ha_rows		records);
 
 /** Build template for the virtual columns and their base columns
-@param[in]	table		MySQL TABLE
+@param[in]	share		MySQL TABLE_SHARE
 @param[in]	ib_table	InnoDB dict_table_t
 @param[in,out]	s_templ		InnoDB template structure
 @param[in]	add_v		new virtual columns added along with
 				add index call
-@param[in]	locked		true if innobase_share_mutex is held
-@param[in]	share_tbl_name	original MySQL table name */
+@param[in]	locked		true if innobase_share_mutex is held */
 void
 innobase_build_v_templ(
-	const TABLE*		table,
+	const TABLE_SHARE*	share,
 	const dict_table_t*	ib_table,
 	dict_vcol_templ_t*	s_templ,
 	const dict_add_v_col_t*	add_v,
-	bool			locked,
-	const char*		share_tbl_name);
+	bool			locked);
 
 /** callback used by MySQL server layer to initialized
 the table virtual columns' template

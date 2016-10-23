@@ -6448,8 +6448,7 @@ ok_exit:
 		s_templ->vtempl = NULL;
 
 		innobase_build_v_templ(
-			altered_table, ctx->new_table, s_templ,
-			NULL, false, NULL);
+			altered_table->s, ctx->new_table, s_templ, NULL, false);
 
 		ctx->new_table->vc_templ = s_templ;
 	} else if (ctx->num_to_add_vcol > 0 && ctx->num_to_drop_vcol == 0) {
@@ -6469,8 +6468,7 @@ ok_exit:
 		s_templ->vtempl = NULL;
 
 		innobase_build_v_templ(
-			altered_table, ctx->new_table, s_templ,
-			add_v, false, NULL);
+			altered_table->s, ctx->new_table, s_templ, add_v, false);
 		old_templ = ctx->new_table->vc_templ;
 		ctx->new_table->vc_templ = s_templ;
 	}
