@@ -3371,7 +3371,6 @@ int JOIN_TAB_SCAN::next()
   int skip_rc;
   READ_RECORD *info= &join_tab->read_record;
   SQL_SELECT *select= join_tab->cache_select;
-  TABLE *table= join_tab->table;
   THD *thd= join->thd;
 
   if (is_first_record)
