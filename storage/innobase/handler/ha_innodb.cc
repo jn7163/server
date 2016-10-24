@@ -850,22 +850,9 @@ get_field_offset(
 	const TABLE*	table,
 	const Field*	field)
 {
-	return(static_cast<uint>((field->ptr - table->record[0])));
+	return field->offset(table->record[0]);
 }
 
-
-/** Gets field offset for a field in a table.
-@param[in]	share	MySQL table share object
-@param[in]	field	MySQL field object (from share->field array)
-@return offset */
-static inline
-uint
-get_field_offset(
-	const TABLE_SHARE*	share,
-	const Field*		field)
-{
-	return(static_cast<uint>((field->ptr - share->default_values)));
-}
 
 /*************************************************************//**
 Check for a valid value of innobase_compression_algorithm.
@@ -6340,7 +6327,7 @@ innobase_vcol_build_templ(
 
 	if (field->real_maybe_null()) {
                 templ->mysql_null_byte_offset =
-                        field->null_offset();
+                        field->null_offset(share->default_values);
 
                 templ->mysql_null_bit_mask = (ulint) field->null_bit;
         } else {
@@ -6348,7 +6335,7 @@ innobase_vcol_build_templ(
         }
 
         templ->mysql_col_offset = static_cast<ulint>(
-					get_field_offset(share, field));
+					field->offset(share->default_values));
 	templ->mysql_col_len = static_cast<ulint>(field->pack_length());
         templ->type = col->mtype;
         templ->mysql_type = static_cast<ulint>(field->type());
@@ -23871,11 +23858,7 @@ innobase_init_vc_templ(
 	char    t_dbname[MAX_DATABASE_NAME_LEN + 1];
 	char    t_tbname[MAX_TABLE_NAME_LEN + 1];
 
-	mutex_enter(&dict_sys->mutex);
-
 	if (table->vc_templ != NULL) {
-		mutex_exit(&dict_sys->mutex);
-
 		return;
 	}
 
@@ -23901,17 +23884,18 @@ innobase_init_vc_templ(
 	tbnamelen = filename_to_tablename(tbname, t_tbname,
 					  MAX_TABLE_NAME_LEN + 1);
 
-#ifdef UNIV_DEBUG
-	//bool ret =
-#endif /* UNIV_DEBUG */
+        TABLE_LIST table_list;
+        table_list.init_one_table(t_dbname, dbnamelen,
+                                  t_tbname, tbnamelen, t_tbname, TL_READ);
+        TABLE_SHARE *share= tdc_acquire_share(current_thd, &table_list,
+                                              GTS_TABLE);
+        ut_ad(share);
 
-	/*handler::my_prepare_gcolumn_template(
-		thd, t_dbname, t_tbname,
-		&innobase_build_v_templ_callback,
-		static_cast<void*>(table));
-	ut_ad(!ret); MYSQL_VIRTUAL_COLUMNS*/
-        ut_ad(0);
+	mutex_enter(&dict_sys->mutex);
+	innobase_build_v_templ(share, table, table->vc_templ, NULL, true);
 	mutex_exit(&dict_sys->mutex);
+
+        tdc_release_share(share);
 }
 
 /** Change dbname and table name in table->vc_templ.
