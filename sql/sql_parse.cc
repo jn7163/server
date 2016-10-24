@@ -1096,7 +1096,6 @@ end:
   }
 
 #ifndef EMBEDDED_LIBRARY
-  DBUG_ASSERT(!opt_bootstrap || thread_count == 0);
   my_thread_end();
   pthread_exit(0);
 #endif

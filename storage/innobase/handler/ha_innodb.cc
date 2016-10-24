@@ -293,6 +293,39 @@ static inline char *is_partition(char *file_name)
 #endif /* _WIN32 */
 }
 
+MYSQL_THD create_thd(int use_next_id);
+void destroy_thd(MYSQL_THD thd);
+st_my_thread_var *thd_destructor_myvar= _my_thread_var();
+mysql_mutex_t thd_destructor_mutex;
+mysql_cond_t thd_destructor_cond;
+pthread_t thd_destructor_thread;
+pthread_handler_t thd_destructor_proxy(void *)
+{
+        my_thread_init();
+        mysql_mutex_init(PSI_NOT_INSTRUMENTED, &thd_destructor_mutex, 0);
+        mysql_cond_init(PSI_NOT_INSTRUMENTED, &thd_destructor_cond, 0);
+
+        thd_destructor_myvar= _my_thread_var();
+        THD *thd= create_thd(true);
+
+        mysql_mutex_lock(&thd_destructor_mutex);
+        thd_destructor_myvar->current_mutex= &thd_destructor_mutex;
+        thd_destructor_myvar->current_cond= &thd_destructor_cond;
+        while (!thd_destructor_myvar->abort)
+                mysql_cond_wait(&thd_destructor_cond, &thd_destructor_mutex);
+        mysql_mutex_unlock(&thd_destructor_mutex);
+        thd_destructor_myvar= NULL;
+
+	srv_purge_wakeup();
+
+        destroy_thd(thd);
+        mysql_cond_destroy(&thd_destructor_cond);
+        mysql_mutex_destroy(&thd_destructor_mutex);
+        my_thread_end();
+        return 0;
+}
+
+
 /** Return the InnoDB ROW_FORMAT enum value
 @param[in]	row_format	row_format from "innodb_default_row_format"
 @return InnoDB ROW_FORMAT value from rec_format_t enum. */
@@ -449,6 +482,7 @@ static mysql_pfs_key_t	innobase_share_mutex_key;
 static mysql_pfs_key_t	commit_cond_mutex_key;
 static mysql_pfs_key_t	commit_cond_key;
 static mysql_pfs_key_t	pending_checkpoint_mutex_key;
+static mysql_pfs_key_t  thd_destructor_thread_key;
 
 static PSI_mutex_info	all_pthread_mutexes[] = {
 	PSI_KEY(commit_cond_mutex),
@@ -576,6 +610,7 @@ static PSI_thread_info	all_innodb_threads[] = {
 	PSI_KEY(srv_purge_thread),
 	PSI_KEY(srv_worker_thread),
 	PSI_KEY(trx_rollback_clean_thread),
+	PSI_KEY(thd_destructor_thread),
 };
 # endif /* UNIV_PFS_THREAD */
 
@@ -4664,6 +4699,12 @@ innobase_change_buffering_inited_ok:
 	}
 	*/
 
+        thd_destructor_myvar= NULL;
+        if (!srv_read_only_mode)
+                mysql_thread_create(thd_destructor_thread_key,
+                                    &thd_destructor_thread,
+                                    NULL, thd_destructor_proxy, NULL);
+
 	/* Since we in this module access directly the fields of a trx
 	struct, and due to different headers and flags it might happen that
 	ib_mutex_t has a different size in this module and in InnoDB
@@ -4737,7 +4778,6 @@ innobase_change_buffering_inited_ok:
 	/* Turn on monitor counters that are default on */
 	srv_mon_default_on();
 
-
 	/* Unit Tests */
 #ifdef UNIV_ENABLE_UNIT_TEST_GET_PARENT_DIR
 	unit_test_os_file_get_parent_dir();
@@ -4798,6 +4838,13 @@ innobase_end(
 #ifdef MYSQL_ENCRYPTION
 		mutex_free(&master_key_id_mutex);
 #endif
+
+                if (thd)
+                {
+                        thd_destructor_myvar->abort= 1;
+                        mysql_cond_broadcast(&thd_destructor_cond);
+                }
+
 		if (innobase_shutdown_for_mysql() != DB_SUCCESS) {
 			err = 1;
 		}

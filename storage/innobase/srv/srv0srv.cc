@@ -45,8 +45,6 @@ Created 10/8/1995 Heikki Tuuri
 //
 // #include "mysql/psi/mysql_stage.h"
 // #include "mysql/psi/psi.h"
-// JAN: TODO: MySQL 5.7 missing header
-//#include "sql_thd_internal_api.h"
 
 #include "ha_prototypes.h"
 
@@ -85,6 +83,10 @@ Created 10/8/1995 Heikki Tuuri
 extern int wsrep_debug;
 extern int wsrep_trx_is_aborting(void *thd_ptr);
 #endif
+
+MYSQL_THD create_thd(int use_next_id);
+void destroy_thd(MYSQL_THD thd);
+
 /* The following is the maximum allowed duration of a lock wait. */
 UNIV_INTERN ulong	srv_fatal_semaphore_wait_threshold =  DEFAULT_SRV_FATAL_SEMAPHORE_TIMEOUT;
 
@@ -2754,8 +2756,7 @@ DECLARE_THREAD(srv_worker_thread)(
 	ut_ad(!srv_read_only_mode);
 	ut_a(srv_force_recovery < SRV_FORCE_NO_BACKGROUND);
 	my_thread_init();
-	// JAN: TODO: MySQL 5.7
-	// THD *thd= create_thd(false, true, true);
+	THD *thd= create_thd(true);
 
 #ifdef UNIV_DEBUG_THREAD_CREATION
 	ib::info() << "Worker thread starting, id "
@@ -2773,13 +2774,22 @@ DECLARE_THREAD(srv_worker_thread)(
 	srv_sys_mutex_exit();
 
 	/* We need to ensure that the worker threads exit after the
-	purge coordinator thread. Otherwise the purge coordinaor can
+	purge coordinator thread. Otherwise the purge coordinator can
 	end up waiting forever in trx_purge_wait_for_workers_to_complete() */
 
 	do {
 		srv_suspend_thread(slot);
 
 		os_event_wait(slot->event);
+
+                if (thd && thd_kill_level(thd)) {
+                        /* Server shutdown, we must not use thd anymore.
+                        innobase_end() will be invoked shortly to tell
+                        this thread to end */
+
+                        destroy_thd(thd);
+                        thd= 0;
+                }
 
 		if (srv_task_execute()) {
 
@@ -2808,8 +2818,6 @@ DECLARE_THREAD(srv_worker_thread)(
 		<< os_thread_pf(os_thread_get_curr_id());
 #endif /* UNIV_DEBUG_THREAD_CREATION */
 
-	// JAN: TODO: MySQL 5.7
-	// destroy_thd(thd);
         my_thread_end();
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit and not use return() to exit. */
@@ -2908,6 +2916,7 @@ static
 void
 srv_purge_coordinator_suspend(
 /*==========================*/
+        MYSQL_THD       thd,
 	srv_slot_t*	slot,			/*!< in/out: Purge coordinator
 						thread slot */
 	ulint		rseg_history_len)	/*!< in: history list length
@@ -2995,7 +3004,7 @@ srv_purge_coordinator_suspend(
 			}
 		}
 
-	} while (stop);
+	} while (stop && !(thd && thd_kill_level(thd)));
 
 	srv_sys_mutex_enter();
 
@@ -3019,8 +3028,7 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 						required by os_thread_create */
 {
 	my_thread_init();
-	// JAN: TODO: MySQL 5.7
-	// THD *thd= create_thd(false, true, true);
+	THD *thd= create_thd(true);
 	srv_slot_t*	slot;
 	ulint           n_total_purged = ULINT_UNDEFINED;
 
@@ -3057,8 +3065,16 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 		    && (purge_sys->state == PURGE_STATE_STOP
 			|| n_total_purged == 0)) {
 
-			srv_purge_coordinator_suspend(slot, rseg_history_len);
+			srv_purge_coordinator_suspend(thd, slot, rseg_history_len);
 		}
+
+                if (thd && thd_kill_level(thd)) {
+                        /* Server shutdown, we must not use thd anymore.
+                        innobase_end() will be invoked shortly to tell
+                        this thread to end */
+                        destroy_thd(thd);
+                        thd= 0;
+                }
 
 		if (srv_purge_should_exit(n_total_purged)) {
 			ut_a(!slot->suspended);
@@ -3134,8 +3150,6 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 		srv_release_threads(SRV_WORKER, srv_n_purge_threads - 1);
 	}
 
-	// JAN: TODO: MYSQL 5.7
-	// destroy_thd(thd);
 	my_thread_end();
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit and not use return() to exit. */

@@ -522,7 +522,7 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` char(1) DEFAULT NULL,
   `b` char(1) DEFAULT NULL,
-  `c` char(2) GENERATED ALWAYS AS ((`a` or `b`)) VIRTUAL
+  `c` char(2) AS (a || b) VIRTUAL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 (a,b) VALUES('1','1');
 SELECT * FROM t1;
@@ -535,7 +535,7 @@ a	b	c
 FLUSH TABLES;
 SELECT * FROM t1;
 a	b	c
-1	1	1
+1	1	11
 DROP TABLE t1;
 CREATE TABLE t1(a CHAR(1), b CHAR(1), c CHAR(2) AS (a || b));
 SHOW CREATE TABLE t1;
@@ -543,7 +543,7 @@ Table	Create Table
 t1	CREATE TABLE `t1` (
   `a` char(1) DEFAULT NULL,
   `b` char(1) DEFAULT NULL,
-  `c` char(2) GENERATED ALWAYS AS (concat(`a`,`b`)) VIRTUAL
+  `c` char(2) AS (a || b) VIRTUAL
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1
 INSERT INTO t1 (a,b) VALUES('1','1');
 SELECT * FROM t1;
@@ -556,7 +556,7 @@ a	b	c
 FLUSH TABLES;
 SELECT * FROM t1;
 a	b	c
-1	1	11
+1	1	1
 DROP TABLE t1;
 # Bug#22018999: gcols: assertion failed: !error
 SET @save_old_sql_mode= @@sql_mode;
@@ -568,7 +568,6 @@ DROP TABLE t;
 CREATE TABLE t (a INTEGER) engine=innodb;
 ALTER TABLE t ADD b INTEGER AS (SUBSTR('','a',1));
 Warnings:
-Warning	1292	Truncated incorrect INTEGER value: 'a'
 Warning	1292	Truncated incorrect INTEGER value: 'a'
 Warning	1292	Truncated incorrect INTEGER value: 'a'
 DROP TABLE t;
