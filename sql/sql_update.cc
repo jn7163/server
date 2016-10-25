@@ -221,6 +221,24 @@ static void prepare_record_for_error_message(int error, TABLE *table)
   DBUG_VOID_RETURN;
 }
 
+
+void clear_forgotten_blobs(MY_BITMAP *map, TABLE *table)
+{
+  if (map->bitmap)
+  {
+    for (Field **ptr=table->vfield; *ptr; ptr++)
+    {
+      Field_blob *vb= (Field_blob*)(*ptr);
+      if (!(vb->flags & BLOB_FLAG) ||
+          !bitmap_fast_test_and_clear(map, ptr - table->vfield))
+        continue;
+      my_free(vb->get_ptr(table->s->rec_buff_length));
+    }
+    DBUG_ASSERT(bitmap_is_clear_all(map));
+  }
+}
+
+
 /*
   Process usual UPDATE
 
@@ -255,7 +273,6 @@ int mysql_update(THD *thd,
   bool		using_limit= limit != HA_POS_ERROR;
   bool          safe_update= thd->variables.option_bits & OPTION_SAFE_UPDATES;
   bool          used_key_is_modified= FALSE, transactional_table, will_batch;
-  bool          free_vcol_blobs= false;
   bool		can_compare_record;
   int           res;
   int		error, loc_error;
@@ -273,6 +290,7 @@ int mysql_update(THD *thd,
   SORT_INFO     *file_sort= 0;
   READ_RECORD	info;
   SELECT_LEX    *select_lex= &thd->lex->select_lex;
+  MY_BITMAP     forgotten_blobs;
   ulonglong     id;
   List<Item> all_fields;
   killed_state killed_status= NOT_KILLED;
@@ -724,6 +742,11 @@ int mysql_update(THD *thd,
 
   table->reset_default_fields();
 
+  if (table->s->virtual_fields && table->s->blob_fields)
+    bitmap_init(&forgotten_blobs, NULL, table->s->virtual_fields, FALSE);
+  else
+    forgotten_blobs.bitmap= NULL;
+
   /*
     We can use compare_record() to optimize away updates if
     the table handler is returning all columns OR if
@@ -751,7 +774,7 @@ int mysql_update(THD *thd,
         - an old record is read from the table, it has no vcol blob.
         - update_virtual_fields() is run, vcol blob gets its value into the
           record.  but only a pointer to the value is in the table->record[0],
-          the value is in Field_blob::value String.
+          the value can be in Field_blob::value String (or it can elsewhere)
         - store_record(table,record[1]), old record is record[1]
         - fill_record() prepares new values in record[0], vcol blob is updated,
           new value replaces the old one in the Field_blob::value
@@ -760,10 +783,20 @@ int mysql_update(THD *thd,
           Field_blob::value had to realloc.
 
         To resolve this we unlink vcol blobs from the pointer to the
-        data (in the record[1]). The unlinked memory must be freed manually.
+        data (in the record[1]). The unlinked memory must be freed manually
+        (but, again, only if it was owned by Field_blob::value String).
       */
-      if ((free_vcol_blobs= table->s->virtual_fields && table->s->blob_fields))
-        unlink_blobs(table->vfield);
+      if (forgotten_blobs.bitmap)
+      {
+        for (Field **ptr=table->vfield; *ptr; ptr++)
+        {
+          Field_blob *vb= (Field_blob*)(*ptr);
+          if (!(vb->flags & BLOB_FLAG) || !vb->owns_ptr(vb->get_ptr()))
+            continue;
+          bitmap_set_bit(&forgotten_blobs, ptr - table->vfield);
+          vb->clear_temporary();
+        }
+      }
 
       if (fill_record_n_invoke_before_triggers(thd, table, fields, values, 0,
                                                TRG_EVENT_UPDATE))
@@ -924,12 +957,9 @@ int mysql_update(THD *thd,
       error= 1;
       break;
     }
-    if (free_vcol_blobs)
-      free_unlinked_blobs(table->vfield, table->s->rec_buff_length);
-    free_vcol_blobs= false;
+    clear_forgotten_blobs(&forgotten_blobs, table);
   }
-  if (free_vcol_blobs)
-    free_unlinked_blobs(table->vfield, table->s->rec_buff_length);
+  clear_forgotten_blobs(&forgotten_blobs, table);
   ANALYZE_STOP_TRACKING(&explain->command_tracker);
   table->auto_increment_field_not_null= FALSE;
   dup_key_found= 0;
@@ -1024,6 +1054,7 @@ int mysql_update(THD *thd,
     }
   }
   DBUG_ASSERT(transactional_table || !updated || thd->transaction.stmt.modified_non_trans_table);
+  bitmap_free(&forgotten_blobs);
   free_underlaid_joins(thd, select_lex);
   delete file_sort;
 
@@ -1060,6 +1091,7 @@ int mysql_update(THD *thd,
 err:
   delete select;
   delete file_sort;
+  bitmap_free(&forgotten_blobs);
   free_underlaid_joins(thd, select_lex);
   table->set_keyread(false);
   thd->abort_on_warning= 0;
