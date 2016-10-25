@@ -2782,15 +2782,6 @@ DECLARE_THREAD(srv_worker_thread)(
 
 		os_event_wait(slot->event);
 
-                if (thd && thd_kill_level(thd)) {
-                        /* Server shutdown, we must not use thd anymore.
-                        innobase_end() will be invoked shortly to tell
-                        this thread to end */
-
-                        destroy_thd(thd);
-                        thd= 0;
-                }
-
 		if (srv_task_execute()) {
 
 			/* If there are tasks in the queue, wakeup
@@ -2809,7 +2800,7 @@ DECLARE_THREAD(srv_worker_thread)(
 
 	ut_a(!purge_sys->running);
 	ut_a(purge_sys->state == PURGE_STATE_EXIT);
-	ut_a(srv_shutdown_state > SRV_SHUTDOWN_NONE);
+	ut_a(srv_shutdown_state > SRV_SHUTDOWN_NONE || thd_kill_level(thd));
 
 	rw_lock_x_unlock(&purge_sys->latch);
 
@@ -2818,6 +2809,7 @@ DECLARE_THREAD(srv_worker_thread)(
 		<< os_thread_pf(os_thread_get_curr_id());
 #endif /* UNIV_DEBUG_THREAD_CREATION */
 
+        destroy_thd(thd);
         my_thread_end();
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit and not use return() to exit. */
@@ -3004,7 +2996,7 @@ srv_purge_coordinator_suspend(
 			}
 		}
 
-	} while (stop && !(thd && thd_kill_level(thd)));
+	} while (stop && !thd_kill_level(thd));
 
 	srv_sys_mutex_enter();
 
@@ -3062,24 +3054,21 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 		purge didn't purge any records then wait for activity. */
 
 		if (srv_shutdown_state == SRV_SHUTDOWN_NONE
+                    && !thd_kill_level(thd)
 		    && (purge_sys->state == PURGE_STATE_STOP
 			|| n_total_purged == 0)) {
 
 			srv_purge_coordinator_suspend(thd, slot, rseg_history_len);
 		}
 
-                if (thd && thd_kill_level(thd)) {
-                        /* Server shutdown, we must not use thd anymore.
-                        innobase_end() will be invoked shortly to tell
-                        this thread to end */
-                        destroy_thd(thd);
-                        thd= 0;
-                }
-
 		if (srv_purge_should_exit(n_total_purged)) {
 			ut_a(!slot->suspended);
 			break;
 		}
+
+                if (thd_kill_level(thd) && !n_total_purged) {
+                        break;
+                }
 
 		n_total_purged = 0;
 
@@ -3087,11 +3076,6 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 			srv_n_purge_threads, &n_total_purged);
 
 	} while (!srv_purge_should_exit(n_total_purged));
-
-	/* Ensure that we don't jump out of the loop unless the
-	exit condition is satisfied. */
-
-	ut_a(srv_purge_should_exit(n_total_purged));
 
 	ulint	n_pages_purged = ULINT_MAX;
 
@@ -3150,6 +3134,7 @@ DECLARE_THREAD(srv_purge_coordinator_thread)(
 		srv_release_threads(SRV_WORKER, srv_n_purge_threads - 1);
 	}
 
+        destroy_thd(thd);
 	my_thread_end();
 	/* We count the number of threads in os_thread_exit(). A created
 	thread should always use that to exit and not use return() to exit. */

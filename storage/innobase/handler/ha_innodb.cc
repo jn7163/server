@@ -4839,7 +4839,7 @@ innobase_end(
 		mutex_free(&master_key_id_mutex);
 #endif
 
-                if (thd)
+                if (!abort_loop)
                 {
                         thd_destructor_myvar->abort= 1;
                         mysql_cond_broadcast(&thd_destructor_cond);
