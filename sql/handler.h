@@ -1870,14 +1870,14 @@ public:
   // Stored generated column
   static const HA_ALTER_FLAGS ADD_STORED_GENERATED_COLUMN= 1ULL << 8;
   // Add generic column (convience constant).
-  static const HA_ALTER_FLAGS Add_COLUMN= ADD_VIRTUAL_COLUMN |
+  static const HA_ALTER_FLAGS ADD_COLUMN= ADD_VIRTUAL_COLUMN |
                                           ADD_STORED_BASE_COLUMN |
                                           ADD_STORED_GENERATED_COLUMN;
 
   // Drop column
   static const HA_ALTER_FLAGS DROP_VIRTUAL_COLUMN        = 1ULL << 9;
   static const HA_ALTER_FLAGS DROP_STORED_COLUMN         = 1ULL << 10;
-  static const HA_ALTER_FLAGS Drop_COLUMN= DROP_VIRTUAL_COLUMN |
+  static const HA_ALTER_FLAGS DROP_COLUMN= DROP_VIRTUAL_COLUMN |
                                            DROP_STORED_COLUMN;
 
   // Rename column

@@ -4243,7 +4243,6 @@ handler::check_if_supported_inplace_alter(TABLE *altered_table,
     Alter_inplace_info::CHANGE_CREATE_OPTION |
     Alter_inplace_info::ALTER_PARTITIONED |
     Alter_inplace_info::ALTER_VIRTUAL_GCOL_EXPR |
-    Alter_inplace_info::ALTER_VIRTUAL_COLUMN_TYPE |
     Alter_inplace_info::ALTER_RENAME;
 
   /* Is there at least one operation that requires copy algorithm? */

@@ -880,7 +880,7 @@ ha_innobase::check_if_supported_inplace_alter(
 
 			/* This is an added column. */
 			DBUG_ASSERT(ha_alter_info->handler_flags
-				    & Alter_inplace_info::Add_COLUMN);
+				    & Alter_inplace_info::ADD_COLUMN);
 
 			/* We cannot replace a hidden FTS_DOC_ID
 			with a user-visible FTS_DOC_ID. */
@@ -3077,7 +3077,7 @@ innobase_build_col_map(
 		    + dict_table_get_n_v_cols(old_table)
 		    >= table->s->fields + DATA_N_SYS_COLS);
 	DBUG_ASSERT(!!add_cols == !!(ha_alter_info->handler_flags
-				     & Alter_inplace_info::Add_COLUMN));
+				     & Alter_inplace_info::ADD_COLUMN));
 	DBUG_ASSERT(!add_cols || dtuple_get_n_fields(add_cols)
 		    == dict_table_get_n_cols(new_table));
 
@@ -4813,7 +4813,7 @@ new_clustered_failed:
 		}
 
 		if (ha_alter_info->handler_flags
-		    & Alter_inplace_info::Add_COLUMN) {
+		    & Alter_inplace_info::ADD_COLUMN) {
 			add_cols = dtuple_create_with_vcol(
 				ctx->heap,
 				dict_table_get_n_cols(ctx->new_table),
@@ -6238,7 +6238,7 @@ err_exit:
 		/* This is an added column. */
 		DBUG_ASSERT(!new_field->field);
 		DBUG_ASSERT(ha_alter_info->handler_flags
-			    & Alter_inplace_info::Add_COLUMN);
+			    & Alter_inplace_info::ADD_COLUMN);
 
 		field = altered_table->field[i];
 
