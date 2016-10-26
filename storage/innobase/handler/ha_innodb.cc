@@ -6004,7 +6004,8 @@ void ha_innobase::column_bitmaps_signal()
 
 found:
         for (uint j=0; j < table->s->virtual_fields; j++) {
-                bitmap_set_bit(table->vcol_set, table->vfield[j]->field_index);
+                if (table->vfield[j]->flags & PART_KEY_FLAG)
+                        table->mark_virtual_col(table->vfield[j]);
         }
 }
 
