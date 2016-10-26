@@ -7283,7 +7283,7 @@ bool is_simple_order(ORDER *order)
 
 int TABLE::update_virtual_fields(enum_vcol_update_mode update_mode)
 {
-  DBUG_ENTER("update_virtual_fields");
+  DBUG_ENTER("TABLE::update_virtual_fields");
   Field **vfield_ptr, *vf;
   DBUG_ASSERT(vfield);
 
