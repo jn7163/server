@@ -444,6 +444,9 @@ x	y	gc
 SELECT gc FROM t;
 gc
 2
+CHECK TABLE t;
+Table	Op	Msg_type	Msg_text
+test.t	check	status	OK
 DROP TABLE t;
 # stored
 CREATE TABLE C (
