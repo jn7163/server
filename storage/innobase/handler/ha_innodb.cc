@@ -24171,6 +24171,7 @@ innobase_get_computed_value(
 				vctempl->mysql_col_len, blob_mem, max_len);
                 }
 
+                ut_a(0);
 		ret = 1; /*handler::my_eval_gcolumn_expr_with_open(
 			thd, index->table->vc_templ->db_name.c_str(),
 			index->table->vc_templ->tb_name.c_str(), col->m_col.ind,
