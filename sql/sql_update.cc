@@ -386,6 +386,7 @@ int mysql_update(THD *thd,
   if (check_unique_table(thd, table_list))
     DBUG_RETURN(TRUE);
 
+  forgotten_blobs.bitmap= NULL;
   switch_to_nullable_trigger_fields(fields, table);
   switch_to_nullable_trigger_fields(values, table);
 
@@ -744,8 +745,6 @@ int mysql_update(THD *thd,
 
   if (table->s->virtual_fields && table->s->blob_fields)
     bitmap_init(&forgotten_blobs, NULL, table->s->virtual_fields, FALSE);
-  else
-    forgotten_blobs.bitmap= NULL;
 
   /*
     We can use compare_record() to optimize away updates if
@@ -1108,6 +1107,7 @@ emit_explain_and_leave:
   int err2= thd->lex->explain->send_explain(thd);
 
   delete select;
+  bitmap_free(&forgotten_blobs);
   free_underlaid_joins(thd, select_lex);
   DBUG_RETURN((err2 || thd->is_error()) ? 1 : 0);
 }
