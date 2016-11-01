@@ -7590,7 +7590,7 @@ wsrep_store_key_val_for_row(
 				format) */
 	uint		buff_len,/*!< in: buffer length */
 	const uchar*	record,
-	row_prebuilt_t*	prebuilt,	/*!< in/out: template */
+	row_prebuilt_t*	prebuilt,	/*!< in: InnoDB prebuilt struct */
 	ibool*          key_is_null)/*!< out: full key was null */
 {
 	KEY*		key_info	= table->key_info + keynr;
@@ -7747,8 +7747,8 @@ wsrep_store_key_val_for_row(
 
 			blob_data = row_mysql_read_blob_ref(&blob_len,
 				(byte*) (record
-				+ (ulint)get_field_offset(table, field)),
-					(ulint) field->pack_length(),
+				+ (ulint) get_field_offset(table, field)),
+				(ulint) field->pack_length(),
 #ifdef HAVE_PERCONA_COMPRESSED_COLUMNS
 				field->column_format() ==
 					COLUMN_FORMAT_TYPE_COMPRESSED,
