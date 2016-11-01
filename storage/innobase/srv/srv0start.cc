@@ -2234,8 +2234,10 @@ innobase_start_or_create_for_mysql(void)
 
 					/* Suppress the message about
 					crash recovery. */
-					max_flushed_lsn = min_flushed_lsn
-						= log_get_lsn();
+					if (!IS_XTRABACKUP() || !srv_archive_recovery) {
+						max_flushed_lsn = min_flushed_lsn
+							= log_get_lsn();
+					}
 					goto files_checked;
 				} else if (i < 2) {
 					/* must have at least 2 log files */
